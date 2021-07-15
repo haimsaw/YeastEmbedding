@@ -6,8 +6,8 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import torch.nn.functional as F
 # import scipy.sparse as sp
-
 import networkx as nx
+
 
 class NetworkDataset(Dataset): # todo use IterableDataset?
     def __init__(self, file_name, transform=None):
@@ -26,19 +26,18 @@ class NetworkDataset(Dataset): # todo use IterableDataset?
         u = self.nodes_list[i]
         v = self.nodes_list[j]
 
+        x1 = np.zeros(self.n_nodes)  # F.one_hot(torch.tensor([i], dtype=torch.long), num_classes=self.n_nodes)
+        x1[i] = 1
+        x2 = np.zeros(self.n_nodes)  # F.one_hot(torch.tensor([j], dtype=torch.long), num_classes=self.n_nodes)
+        x2[j] = 1
+        propagation = 5.1
 
-        sample = {'names': (u, v), 'xs': (x1, x2), 'propagation': 5}
-
-        if self.transform:
-            sample = self.transform(sample)
-
-        return sample
+        return x1, x2, propagation
 
 
 class EmbeddingNetwork(nn.Module):
     def __init__(self, n_nodes):
         super(EmbeddingNetwork, self).__init__()
-        self.flatten = nn.Flatten()
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(n_nodes, 512),
             nn.ReLU(),
@@ -47,7 +46,6 @@ class EmbeddingNetwork(nn.Module):
             nn.Linear(512, 100),
             nn.ReLU()
         )
-        self.out = nn.Linear(4096, 1)
 
     def forward_one(self, x):
         x = self.linear_relu_stack(x)
@@ -56,71 +54,28 @@ class EmbeddingNetwork(nn.Module):
     def forward(self, x1, x2):
         out1 = self.forward_one(x1)
         out2 = self.forward_one(x2)
-        return out
-
-def main():
-    dataset = NetworkDataset('HuRI.tsv')
-
-    dataloader = DataLoader(dataset, batch_size=64)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Using {} device".format(device))
-
-    model = EmbeddingNetwork().to(device)
-
-if __name__ == "__main__":
-    main()
+        return out1, out2
 
 
-
-'''
-
-for X, y in test_dataloader:
-    print("Shape of X [N, C, H, W]: ", X.shape)
-    print("Shape of y: ", y.shape, y.dtype)
-    break
-
-
-# Get cpu or gpu device for training.
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print("Using {} device".format(device))
-
-
-# Define model
-class NeuralNetwork(nn.Module):
+class L2DistLoss(torch.nn.Module):
     def __init__(self):
-        super(NeuralNetwork, self).__init__()
-        self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(28 * 28, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 10),
-            nn.ReLU()
-        )
+        super(L2DistLoss, self).__init__()
+        self.mse = torch.nn.MSELoss()
 
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
+    def forward(self, output1, output2, label):
+        euclidean_distance = F.pairwise_distance(output1, output2, p=2)
+        res = self.mse(euclidean_distance, label)
+        return res
 
 
-model = NeuralNetwork().to(device)
-print(model)
-
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
-
-
-def train(dataloader, model, loss_fn, optimizer):
+def train(dataloader, model, loss_fn, optimizer, device):
     size = len(dataloader.dataset)
-    for batch, (X, y) in enumerate(dataloader):
-        X, y = X.to(device), y.to(device)
+    for batch, (x1, x2, y) in enumerate(dataloader):
+        x1, x2, y = x1.to(device), x2.to(device), y.to(device)
 
         # Compute prediction error
-        pred = model(X)
-        loss = loss_fn(pred, y)
+        embed1, embed2 = model(x1, x2)
+        loss = loss_fn(embed1, embed2, y)
 
         # Backpropagation
         optimizer.zero_grad()
@@ -128,31 +83,35 @@ def train(dataloader, model, loss_fn, optimizer):
         optimizer.step()
 
         if batch % 100 == 0:
-            loss, current = loss.item(), batch * len(X)
+            loss, current = loss.item(), batch * len(x1)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
 
 
-def test(dataloader, model, loss_fn):
-    size = len(dataloader.dataset)
-    num_batches = len(dataloader)
-    model.eval()
-    test_loss, correct = 0, 0
-    with torch.no_grad():
-        for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-            pred = model(X)
-            test_loss += loss_fn(pred, y).item()
-            correct += (pred.argmax(1) == y).type(torch.float).sum().item()
-    test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+def main():
+    dataset = NetworkDataset('HuRI.tsv')
+    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+
+    for X1, X2, y in dataloader:
+        print("Shape of X [N, C, H, W]: ", X1.shape)
+        print("Shape of y: ", y.shape, y.dtype)
+        break
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Using {} device".format(device))
+
+    model = EmbeddingNetwork(dataset.n_nodes).to(device)
+    model.double()
+    print(model)
+
+    loss_fn = L2DistLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+
+    for t in range(50):
+        print(f"Epoch {t + 1}\n-------------------------------")
+        train(dataloader, model, loss_fn, optimizer, device)
+    print("Done!")
 
 
-epochs = 50
+if __name__ == "__main__":
+    main()
 
-for t in range(epochs):
-    print(f"Epoch {t+1}\n-------------------------------")
-    train(train_dataloader, model, loss_fn, optimizer)
-    test(test_dataloader, model, loss_fn)
-print("Done!")
-'''
