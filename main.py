@@ -1,15 +1,15 @@
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader
 #from torchvision.transforms import ToTensor, Lambda, Compose
 #import matplotlib.pyplot as plt
 import numpy as np
 import torch.nn.functional as F
 # import scipy.sparse as sp
 import networkx as nx
+from torch.utils.data import Dataset, DataLoader, BatchSampler, RandomSampler
 
 
-class NetworkDataset(Dataset): # todo use IterableDataset?
+class NetworkDataset(Dataset):  # todo use IterableDataset?
     def __init__(self, file_name, transform=None):
         self.g = nx.read_edgelist(file_name)
         self.transform = transform
@@ -89,7 +89,9 @@ def train(dataloader, model, loss_fn, optimizer, device):
 
 def main():
     dataset = NetworkDataset('HuRI.tsv')
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=128, sampler=RandomSampler(BatchSampler(dataset, batch_size=64, drop_last=False),
+                                                                           replacement=True, num_samples=6400000))
+
 
     for X1, X2, y in dataloader:
         print("Shape of X [N, C, H, W]: ", X1.shape)
