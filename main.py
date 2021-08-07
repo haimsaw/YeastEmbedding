@@ -92,7 +92,6 @@ def main():
     dataloader = DataLoader(dataset, batch_size=128, sampler=RandomSampler(BatchSampler(dataset, batch_size=64, drop_last=False),
                                                                            replacement=True, num_samples=6400000))
 
-
     for X1, X2, y in dataloader:
         print("Shape of X [N, C, H, W]: ", X1.shape)
         print("Shape of y: ", y.shape, y.dtype)
