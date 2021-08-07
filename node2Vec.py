@@ -5,13 +5,21 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import Node2Vec
+from torch_geometric.utils import from_networkx
+
+import networkx as nx
+
 
 
 def main():
     dataset = 'Cora'
     path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
     dataset = Planetoid(path, dataset)
-    data = dataset[0]
+    data2 = dataset[0]
+
+    data = from_networkx(nx.read_edgelist('HuRI.tsv'))
+    # data.train_idx = torch.rang([…])
+    # data.test_mask = torch.tensor([…])
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = Node2Vec(data.edge_index, embedding_dim=128, walk_length=20,
@@ -43,7 +51,7 @@ def main():
 
     for epoch in range(1, 101):
         loss = train()
-        acc = test()
+        acc = None #test()
         print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}, Acc: {acc:.4f}')
 
     @torch.no_grad()
