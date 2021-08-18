@@ -88,7 +88,7 @@ def train(dataloader, model, loss_fn, optimizer, device):
 
 
 def main():
-    dataset = NetworkDataset('HuRI.tsv')
+    dataset = NetworkDataset('data/HuRI.tsv')
     dataloader = DataLoader(dataset, batch_size=128, sampler=RandomSampler(BatchSampler(dataset, batch_size=64, drop_last=False),
                                                                            replacement=True, num_samples=6400000))
 
