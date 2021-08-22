@@ -52,12 +52,6 @@ def plot_2d_embbedings_with_lable(embbeded, labels):
 
 
 def get_data():
-    '''
-    dataset = 'Cora'
-    path = osp.join(osp.dirname(osp.realpath(__file__)), '..', 'data', dataset)
-    dataset = Planetoid(path, dataset)
-    data2 = dataset[0]
-    '''
     G = nx.read_edgelist('db/huri_symbol.tsv')
     G.remove_edges_from(nx.selfloop_edges(G))
     G = nx.k_core(G, 3)  # todo hyperparam
@@ -74,21 +68,6 @@ def get_data():
 
 
 @torch.no_grad()
-def cluster_affinity_propagation(embbeded):
-    af = AffinityPropagation(preference=-50).fit(embbeded)
-    cluster_centers_indices = af.cluster_centers_indices_
-    labels = af.labels_
-    n_clusters_ = len(np.unique(labels))
-    indecies = np.array(range(len(labels)))
-    print('Estimated number of clusters: %d' % n_clusters_)
-
-    clusters = []
-    for i in range(max(labels)+1):
-        clusters.append(indecies[labels == i])
-    return clusters, labels
-
-
-@torch.no_grad()
 def plot_each_cluster(G, labels):
     for i in range(max(labels) + 1):
         nodes = np.array(G.nodes)[labels == i]
@@ -98,14 +77,18 @@ def plot_each_cluster(G, labels):
         plt.show()
 
 
-def main():
-    data, G, gaf_data = get_data()
-    #nx.draw(G)
-    #plt.show()
+def cluster_affinity_propagation(embedded):
+    af = AffinityPropagation(preference=-50).fit(embedded)
+    labels = af.labels_
+    n_clusters_ = len(np.unique(labels))
+    print(f'Number of clusters: {n_clusters_}')
+    return labels
 
-    model = Node2Vec(data.edge_index, embedding_dim=128, walk_length=20,
-                     context_size=10, walks_per_node=10,
-                     num_negative_samples=1, p=1, q=1, sparse=True).to(device)
+
+def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
+    model = Node2Vec(data.edge_index, embedding_dim=embedding_dim, walk_length=walk_length,
+                     context_size=10, walks_per_node=walks_per_node,
+                     num_negative_samples=1, p=p, q=q, sparse=True).to(device)
     # todo we want more bfs - homophily
     # p = return parameter,  likelihood of immediately revisiting a node
     # q = in-out parameter, if q > 1, the random walk is biased towards nodes close to node t. (more bfs)
@@ -114,21 +97,37 @@ def main():
     optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=0.01)
 
     losses = []
-    for epoch in range(3):
+    for epoch in range(epochs):
         loss = train(model, optimizer, loader)
         losses.append(loss)
-        print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
-    #plt.bar(range(len(losses)), losses)
+        if epoch % 10 == 0:
+            print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
 
+    plt.bar(range(len(losses)), losses)
     model.eval()
-    embbeded = model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy()
-    affinity_propagation_clusters, affinity_propagation_labels = cluster_affinity_propagation(embbeded)
+    return model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy(), losses[-1]
 
-    #plot_each_cluster(G, affinity_propagation_labels)
 
-    #plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
-    score = get_partition_score(G, affinity_propagation_clusters, gaf_data)
+def cluster_embeddings(G, embedded, gaf_data):
+    affinity_propagation_labels = cluster_affinity_propagation(embedded)
+    indices = np.array(range(len(affinity_propagation_labels)))
 
+    affinity_propagation_clusters = []
+    for i in range(max(affinity_propagation_labels)+1):
+        affinity_propagation_clusters.append(indices[affinity_propagation_labels == i])
+
+    # plot_each_cluster(G, affinity_propagation_labels)
+    # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
+    return get_partition_score(G, affinity_propagation_clusters, gaf_data)
+
+
+def main():
+    data, G, gaf_data = get_data()
+    #nx.draw(G)
+    #plt.show()
+
+    embedded, embedding_loss = embed(data, epochs=50, p=1, q=1, embedding_dim=128, walk_length=20, walks_per_node=10)
+    score = cluster_embeddings(G, embedded, gaf_data)
     print(f'sacore={score}')
 
 
