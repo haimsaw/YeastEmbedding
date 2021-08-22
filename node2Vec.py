@@ -119,8 +119,33 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
             print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
 
     plt.bar(range(len(losses)), losses)
+    plt.show()
+
     model.eval()
     return model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy(), losses[-1]
+
+
+def run_test(G, data,  gaf_data, epochs, p, q, embedding_dim, walk_length, walks_per_node, preference, damping):
+    embedded, embedding_loss = embed(data, epochs=epochs, p=p, q=q, embedding_dim=embedding_dim, walk_length=walk_length, walks_per_node=walks_per_node)
+    score = cluster_embeddings(G, embedded, gaf_data, preference=preference, damping=damping)
+    print(f'q={q} p={p} embedding_loss={embedding_loss} score={score}\n\n')
+
+    return embedding_loss, score
+
+
+def show_exp_results(ps, qs, scores):
+    fig, ax = plt.subplots(1, 1)
+
+    ax.set_xticklabels([0] + list(ps))
+    ax.set_xlabel("p")
+
+    ax.set_yticklabels([0] + list(qs))
+    ax.set_ylabel("q")
+
+    img = ax.imshow(scores, cmap='cividis')
+    fig.colorbar(img)
+    fig.suptitle("scores by p, q")
+    plt.show()
 
 
 def main():
@@ -132,6 +157,15 @@ def main():
     score = cluster_embeddings(G, embedded, gaf_data, preference=None, damping=0.5)
     print(f'sacore={score}')
 
+    ps = np.linspace(0.1, 4, 5)
+    qs = np.linspace(0.1, 4, 5)
+    test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
+
+    res = np.apply_along_axis(lambda x: run_test(G, data,  gaf_data, epochs=50, p=x[0], q=x[1], embedding_dim=128, walk_length=20, walks_per_node=10, preference=None, damping=0.5), -1, test_matrix)
+
+    embedding_loss, scores = res[:, :, 0], res[:, :, 1]
+
+    show_exp_results(ps, qs, scores)
 
 if __name__ == "__main__":
     main()
