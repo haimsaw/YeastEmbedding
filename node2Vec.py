@@ -77,12 +77,27 @@ def plot_each_cluster(G, labels):
         plt.show()
 
 
-def cluster_affinity_propagation(embedded):
-    af = AffinityPropagation(preference=-50).fit(embedded)
+def cluster_affinity_propagation(embedded, preference, damping):
+    # preference - controls how many exemplars are used
+    # damping factor - damps the responsibility and availability messages (between 0.5 and 1)
+    af = AffinityPropagation(preference=preference, damping=damping).fit(embedded)
     labels = af.labels_
     n_clusters_ = len(np.unique(labels))
     print(f'Number of clusters: {n_clusters_}')
     return labels
+
+
+def cluster_embeddings(G, embedded, gaf_data, preference, damping):
+    affinity_propagation_labels = cluster_affinity_propagation(embedded, preference=preference, damping=damping)
+    indices = np.array(range(len(affinity_propagation_labels)))
+
+    affinity_propagation_clusters = []
+    for i in range(max(affinity_propagation_labels)+1):
+        affinity_propagation_clusters.append(indices[affinity_propagation_labels == i])
+
+    # plot_each_cluster(G, affinity_propagation_labels)
+    # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
+    return get_partition_score(G, affinity_propagation_clusters, gaf_data)
 
 
 def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
@@ -108,26 +123,13 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
     return model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy(), losses[-1]
 
 
-def cluster_embeddings(G, embedded, gaf_data):
-    affinity_propagation_labels = cluster_affinity_propagation(embedded)
-    indices = np.array(range(len(affinity_propagation_labels)))
-
-    affinity_propagation_clusters = []
-    for i in range(max(affinity_propagation_labels)+1):
-        affinity_propagation_clusters.append(indices[affinity_propagation_labels == i])
-
-    # plot_each_cluster(G, affinity_propagation_labels)
-    # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
-    return get_partition_score(G, affinity_propagation_clusters, gaf_data)
-
-
 def main():
     data, G, gaf_data = get_data()
     #nx.draw(G)
     #plt.show()
 
     embedded, embedding_loss = embed(data, epochs=50, p=1, q=1, embedding_dim=128, walk_length=20, walks_per_node=10)
-    score = cluster_embeddings(G, embedded, gaf_data)
+    score = cluster_embeddings(G, embedded, gaf_data, preference=None, damping=0.5)
     print(f'sacore={score}')
 
 
