@@ -2,6 +2,8 @@ import sklearn.preprocessing
 from scipy.sparse import isspmatrix, dok_matrix, csc_matrix
 from scipy.stats import hypergeom
 import numpy as np
+from itertools import starmap
+from statistics import mean
 
 def mclAlg(adjMatrix, infParam, expParam):
     print('Running MCL with inflation param: ' + str(round(infParam, 2)) + ', expansion param: ' + str(expParam))
@@ -151,3 +153,11 @@ def getNumOfAnnotationsInG(G, gafData):
         else:
             numOfAnnotationsInG[nodeAnnotation] += 1
     return numOfAnnotationsInG
+
+
+def get_partition_score(G, clusters, gaf_data):
+    num_of_annotations_in_g = getNumOfAnnotationsInG(G, gaf_data)
+    clusters_annotation, clusters_P_Val = computeClustersFuncEnrichment(G, clusters, gaf_data, num_of_annotations_in_g)
+    # todo- check with Aner clusters with < 3 protines have 1 p-val
+    score = sum(starmap(lambda cluster, pval: len(cluster) * max(pval, 0), zip(clusters, clusters_P_Val))) / len(G.nodes)
+    return score

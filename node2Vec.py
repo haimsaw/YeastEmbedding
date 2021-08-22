@@ -5,8 +5,8 @@ from sklearn.manifold import TSNE
 from torch_geometric.nn import Node2Vec
 from torch_geometric.utils import from_networkx
 
-import clusterUtils
-import graphUtils
+from clusterUtils import *
+from graphUtils import *
 import networkx as nx
 
 from sklearn.cluster import AffinityPropagation
@@ -28,7 +28,7 @@ def train(model, optimizer, loader):
 
 
 @torch.no_grad()
-def plot_points(model, data):
+def plot_2d_embbedings(model, data):
     model.eval()
     z = model(torch.arange(data.num_nodes, device=device))
     z = TSNE(n_components=2).fit_transform(z.cpu().numpy())
@@ -41,7 +41,7 @@ def plot_points(model, data):
 
 
 @torch.no_grad()
-def plot_points_with_cluster(embbeded, labels):
+def plot_2d_embbedings_with_lable(embbeded, labels):
     z = TSNE(n_components=2).fit_transform(embbeded)
     print(z.shape)
 
@@ -68,12 +68,13 @@ def get_data():
     data.train_mask = idx[:n_train]
     data.test_mask = idx[n_train:]
 
-    gaf_data = graphUtils.readGafFile("./db/goa_human.gaf")
+    gaf_data = readGafFile("./db/goa_human.gaf")
 
     return data, G, gaf_data
 
 
-def cluster(embbeded):
+@torch.no_grad()
+def cluster_affinity_propagation(embbeded):
     af = AffinityPropagation(preference=-50).fit(embbeded)
     cluster_centers_indices = af.cluster_centers_indices_
     labels = af.labels_
@@ -87,15 +88,24 @@ def cluster(embbeded):
     return clusters, labels
 
 
+@torch.no_grad()
+def plot_each_cluster(G, labels):
+    for i in range(max(labels) + 1):
+        nodes = np.array(G.nodes)[labels == i]
+        H = G.subgraph(nodes)
+        print(f'\n\ncluser={i}, n_nodes={len(nodes)}:')
+        nx.draw(H, node_size=70)
+        plt.show()
+
+
 def main():
     data, G, gaf_data = get_data()
-    nx.draw(G)
-    plt.show()
+    #nx.draw(G)
+    #plt.show()
 
     model = Node2Vec(data.edge_index, embedding_dim=128, walk_length=20,
                      context_size=10, walks_per_node=10,
                      num_negative_samples=1, p=1, q=1, sparse=True).to(device)
-    print(model)
     # todo we want more bfs - homophily
     # p = return parameter,  likelihood of immediately revisiting a node
     # q = in-out parameter, if q > 1, the random walk is biased towards nodes close to node t. (more bfs)
@@ -103,20 +113,24 @@ def main():
     loader = model.loader(batch_size=128, shuffle=True, num_workers=4)
     optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=0.01)
 
-    for epoch in range(5):
+    losses = []
+    for epoch in range(3):
         loss = train(model, optimizer, loader)
+        losses.append(loss)
         print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
-
+    #plt.bar(range(len(losses)), losses)
 
     model.eval()
-    embbeded, = model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy()
-    clusters, labels = cluster(embbeded)
+    embbeded = model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy()
+    affinity_propagation_clusters, affinity_propagation_labels = cluster_affinity_propagation(embbeded)
 
-    plot_points_with_cluster(embbeded, labels)
-    num_of_annotations_in_g = clusterUtils.getNumOfAnnotationsInG(G, gaf_data)
-    clusters_annotation, clusters_P_Val = clusterUtils.computeClustersFuncEnrichment(G, clusters, gaf_data, num_of_annotations_in_g)
+    #plot_each_cluster(G, affinity_propagation_labels)
 
-    print(f'clusters_P_Val={clusters_P_Val}')
+    #plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
+    score = get_partition_score(G, affinity_propagation_clusters, gaf_data)
+
+    print(f'sacore={score}')
+
 
 if __name__ == "__main__":
     main()
