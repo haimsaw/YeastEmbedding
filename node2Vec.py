@@ -14,8 +14,6 @@ from sklearn.cluster import AffinityPropagation, MiniBatchKMeans
 
 from functools import partial
 
-
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -35,6 +33,7 @@ def get_data():
     gaf_data = readGafFile("./db/goa_human.gaf")
 
     return data, G, gaf_data
+
 
 # endregion
 
@@ -74,15 +73,35 @@ def plot_each_cluster(G, labels):
         plt.show()
 
 
-def show_exp_results(xs, ys, scores, xlabel, ylabel, title):
+def show_exp_results(labels, vals, title, scores):
+    # todo 1d results
+    if len(labels) == 2:
+        show_2d_exp_results(labels, vals, title, scores)
+    elif len(labels) == 3:
+        show_3d_exp_results(labels, vals, title, scores)
+    else:
+        raise Exception("unsupported num of labels")
+
+
+def show_3d_exp_results(labels, vals, title, scores):
+    labels, last_label = labels[:-1], labels[-1]
+    vals, last_vals = vals[:-1], vals[-1]
+    for i, val in enumerate(last_vals):
+        show_2d_exp_results(labels, vals, f'{title} {last_label}={val}', scores[..., i])
+
+
+def show_2d_exp_results(labels, vals, title, scores):
+    xlabel, ylabel = labels[0], labels[1]
+    xs, ys = vals[0], vals[1]
+
     fig, ax = plt.subplots(1, 1)
     img = ax.imshow(scores, cmap='cividis', extent=[-1, 1, -1, 1], origin='lower')
 
-    ax.set_xticks(np.linspace(-1, 1, len(xs), endpoint=False)+1/(len(xs)))
+    ax.set_xticks(np.linspace(-1, 1, len(xs), endpoint=False) + 1 / (len(xs)))
     ax.set_xticklabels(map(lambda x: f'{x:.3f}', xs))
     ax.set_xlabel(xlabel)
 
-    ax.set_yticks(np.linspace(-1, 1, len(ys), endpoint=False)+1/(len(ys)))
+    ax.set_yticks(np.linspace(-1, 1, len(ys), endpoint=False) + 1 / (len(ys)))
     ax.set_yticklabels(map(lambda y: f'{y:.3f}', ys))
     ax.set_ylabel(ylabel)
 
@@ -110,7 +129,7 @@ def train(model, optimizer, loader):
 
 
 def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbose=False):
-    model = Node2Vec(data.edge_index, embedding_dim=embedding_dim, walk_length=walk_length,
+    model = Node2Vec(data.edge_index, embedding_dim=int(embedding_dim), walk_length=walk_length,
                      context_size=10, walks_per_node=walks_per_node,
                      num_negative_samples=1, p=p, q=q, sparse=True).to(device)
 
@@ -157,7 +176,7 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
         clusters.append(indices[labels == i])
 
     n_clusters_ = len(np.unique(labels))
-    print(f'Number of clusters: {n_clusters_}')
+    # print(f'Number of clusters: {n_clusters_}')
 
     # plot_each_cluster(G, affinity_propagation_labels)
     # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
@@ -170,7 +189,7 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
 # region hyperparams
 
 
-def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, verbose=False):
+def run_cycle(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, verbose=False):
     if not verbose:
         print('.', end='')
     embedded, embedding_loss = embed(data, **embedding_hyperparams)
@@ -181,7 +200,33 @@ def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, v
     return embedding_loss, score
 
 
-def parse_hyperparams(clustering_alg, epochs=20, embedding_dim=128, walk_length=20, walks_per_node=10, p=1, q=1):
+def test_hp(G, data, gaf_data, const_hp, verbose=False, **hp_to_test):
+    hp_names_to_test, hp_values_to_test = list(hp_to_test.keys()), list(hp_to_test.values())
+    n_tests = np.prod([len(vals) for vals in hp_values_to_test])
+
+    assert n_tests <= 50
+    if not verbose:
+        print('n_tests' + '.' * n_tests)
+        print('Running', end="")
+
+    parse_tested_hp = partial(parse_hyperparams, **const_hp)
+    test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
+
+    res = np.apply_along_axis(
+        lambda tested_hp: run_cycle(G, data, gaf_data, *parse_tested_hp(**dict(zip(hp_names_to_test, tested_hp))), verbose),
+        -1, test_matrix)
+
+    embedding_loss, scores = res[..., 0], res[..., 1]
+
+    show_exp_results(hp_names_to_test, hp_values_to_test, "scores", scores)
+
+    idx = np.unravel_index(np.argmax(scores), scores.shape)
+    winning_hp = dict(zip(hp_names_to_test,test_matrix[idx]))
+    print(f'\nwinning_params={winning_hp}, max score={scores[idx]}')
+    print(f'hyperparams={parse_tested_hp(**winning_hp)}')
+
+
+def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_per_node, p, q):
     embedding_hyperparams = {
         "epochs": epochs,
         "p": p,
@@ -210,28 +255,6 @@ def parse_hyperparams(clustering_alg, epochs=20, embedding_dim=128, walk_length=
     return embedding_hyperparams, clustering_hyperparams
 
 
-def test_p_q(G, data, gaf_data, clustering_alg, const_hp, verbose=False, **hyperparams_to_test):
-    # TODO make tested hyperparams as *args and pass a list with names, asstert test_matrix.size<=50
-    tested_hp_names, hp_values_to_test = hyperparams_to_test.keys(), hyperparams_to_test.values()
-    test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
-
-    if not verbose:
-        print('n_tests'+'.' * int(np.size(test_matrix)/np.size(test_matrix, axis=-1)))
-        print('Running', end="")
-
-    parse_tested_hyperparams = partial(parse_hyperparams, clustering_alg, **const_hp)
-    res = np.apply_along_axis(
-        lambda tested_hyperparams: run_test(G, data, gaf_data, *parse_tested_hyperparams(*zip(tested_hp_names, tested_hyperparams)), verbose),
-        -1, test_matrix)
-
-    embedding_loss, scores = res[:, :, 0], res[:, :, 1]
-
-    show_exp_results(*hp_values_to_test, scores, "p-return parameter", "q-in-out parameter", "scores by p, q")
-
-    idx = np.unravel_index(np.argmax(scores), scores.shape)
-    print(f'winning_params={test_matrix[idx]}, max score={scores[idx]}')
-    print(f'hyperparams={parse_tested_hyperparams(*zip(tested_hp_names, test_matrix[idx]))}')
-
 # endregion
 
 
@@ -239,17 +262,20 @@ def main():
     data, G, gaf_data = get_data()
     # nx.draw(G)
     # plt.show()
-
-    ps = np.linspace(0.01, 4, 4)
-    qs = np.linspace(0.01, 4, 4)
-    other_hyperparams = {
-         "epochs": 0,
-         "embedding_dim": 128,
-         "walk_length": 20,
-         "walks_per_node": 10
+    ps = np.linspace(0.01, 4, 2)
+    qs = np.linspace(0.01, 4, 2)
+    embedding_dims = [64, 128]
+    const_hp = {
+        "clustering_alg": "k_means",
+        "epochs": 0,
+        # "p": 0.01,
+        # "q": 1.34,
+        # "embedding_dim": 128,
+        "walk_length": 20,
+        "walks_per_node": 10
     }
 
-    test_p_q(G, data, gaf_data, "k_means", other_hyperparams, p=ps, q=qs)
+    test_hp(G, data, gaf_data, const_hp, p=ps, q=qs, embedding_dim=embedding_dims)
 
 
 if __name__ == "__main__":
