@@ -181,7 +181,7 @@ def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
     test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
 
     if not verbose:
-        print('n_tests'+'.'*test_matrix.size)
+        print('n_tests'+'.' * int(np.size(test_matrix)/np.size(test_matrix, axis=-1)))
         print('Running', end="")
     res = np.apply_along_axis(
         lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
