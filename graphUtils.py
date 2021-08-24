@@ -8,7 +8,7 @@ import copy
 import csv
 
 def f(k, c, m):
-	return m * k ** -c
+    return m * k ** -c
 
 def find_cliques_size_k(G, k):
     i = 0
@@ -94,7 +94,11 @@ def readGafFile(fileName):
             if row[8] == 'P':
                 gafData.append(row) 
         cnt += 1
-    return gafData
+
+    proteinsList = [row[2] for row in gafData]
+    annotationList = [row[4] for row in gafData]
+    return dict(zip(proteinsList, annotationList))
+
 
 def generateRandomList(listOfAllEdges, numOfIterations, modelNeighborsLists):
     randomList = copy.deepcopy(listOfAllEdges)

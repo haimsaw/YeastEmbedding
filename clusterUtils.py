@@ -62,23 +62,20 @@ def mclAlg(adjMatrix, infParam, expParam):
             continue
         clusters.add(cluster)
     
-    return sorted(list(clusters),key=len)
+    return sorted(list(clusters), key=len)
 
-def getProteinAnnotation(node, proteinsList, annotationList):
-    try:
-        nodeRowIdx = proteinsList.index(node)
-        annotation = annotationList[nodeRowIdx]
-    except:
-        annotation = -1
-    return annotation
 
-def getClusterAnnotation(cluster, nodesList, proteinsList, annotationList):
+def getProteinAnnotation(node, gaf_data):
+    return gaf_data.get(node, -1)
+
+
+def getClusterAnnotation(cluster, nodesList, gaf_data):
     annotation = -1
     clusterAnnotations = {}
     maxAnnotation = ''
     maxNumber = 0
     for nodeIdx in cluster:
-        nodeAnnotation = getProteinAnnotation(nodesList[nodeIdx], proteinsList, annotationList)
+        nodeAnnotation = getProteinAnnotation(nodesList[nodeIdx], gaf_data)
         if nodeAnnotation == -1:
             continue
         if clusterAnnotations.get(nodeAnnotation) is None:
@@ -100,10 +97,9 @@ def computeClustersFuncEnrichment(G, clusters, gafData, numOfAnnotationsInG):
     clustersAnnotation = [] 
     nodesList = list(G.nodes)
     numOfNodes = len(nodesList)
-    proteinsList = [row[2] for row in gafData]
-    annotationList = [row[4] for row in gafData]
+
     for cluster in clusters:
-        clusterAnnotation, numOfAnnotations = getClusterAnnotation(cluster, nodesList, proteinsList, annotationList)
+        clusterAnnotation, numOfAnnotations = getClusterAnnotation(cluster, nodesList, gafData)
         clustersAnnotation.append(clusterAnnotation)
         if clusterAnnotation == -1:#Less than 3 protien
             clustersPVal.append(-1)
@@ -139,13 +135,12 @@ def createTxtFiles(G, clusters, clustersPVal, clustersAnnotation, fileName1, fil
             f.write(str(clusterCnt) + "\t" + str(round(clustersPVal[clusterCnt - 1],2)) + "\t" + str(clustersAnnotation[clusterCnt - 1]) + "\n")
         f.close()
 
+
 def getNumOfAnnotationsInG(G, gafData):
     nodesList = list(G.nodes)
-    annotationList = [row[4] for row in gafData]
-    proteinsList = [row[2] for row in gafData]
     numOfAnnotationsInG = {}
     for node in nodesList:
-        nodeAnnotation = getProteinAnnotation(node, proteinsList, annotationList)
+        nodeAnnotation = getProteinAnnotation(node, gafData)
         if nodeAnnotation == -1:
             continue
         if numOfAnnotationsInG.get(nodeAnnotation) is None:
@@ -158,6 +153,4 @@ def getNumOfAnnotationsInG(G, gafData):
 def get_partition_score(G, clusters, gaf_data):
     num_of_annotations_in_g = getNumOfAnnotationsInG(G, gaf_data)
     clusters_annotation, clusters_P_Val = computeClustersFuncEnrichment(G, clusters, gaf_data, num_of_annotations_in_g)
-    # todo- check with Aner clusters with < 3 protines have 1 p-val
-    score = sum(starmap(lambda cluster, pval: len(cluster) * max(pval, 0), zip(clusters, clusters_P_Val))) / len(G.nodes)
-    return score
+    return sum(starmap(lambda cluster, pval: len(cluster) * max(pval, 0), zip(clusters, clusters_P_Val))) / len(G.nodes)

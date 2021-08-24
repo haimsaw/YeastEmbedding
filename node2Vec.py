@@ -31,7 +31,6 @@ def get_data():
 
     return data, G, gaf_data
 
-#TODO getProteinAnnotation IS SLOW nodeRowIdx = proteinsList.index(node)
 # endregion
 
 # region plotting
@@ -70,18 +69,18 @@ def plot_each_cluster(G, labels):
         plt.show()
 
 
-def show_exp_results(ps, qs, scores):
+def show_exp_results(xs, ys, scores, xlabel, ylabel, title):
     fig, ax = plt.subplots(1, 1)
 
-    ax.set_xticklabels([0] + list(ps))
-    ax.set_xlabel("p")
+    ax.set_xticklabels([0] + list(xs))
+    ax.set_xlabel(xlabel)
 
-    ax.set_yticklabels([0] + list(qs))
-    ax.set_ylabel("q")
+    ax.set_yticklabels([0] + list(ys))
+    ax.set_ylabel(ylabel)
 
     img = ax.imshow(scores, cmap='cividis')
     fig.colorbar(img)
-    fig.suptitle("scores by p, q")
+    fig.suptitle(title)
     plt.show()
 
 
@@ -114,7 +113,7 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
     loader = model.loader(batch_size=128, shuffle=True, num_workers=4)
     optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=0.01)
 
-    losses = [0]
+    losses = []
     for epoch in range(epochs):
         loss = train(model, optimizer, loader)
         losses.append(loss)
@@ -125,7 +124,8 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
     plt.show()
 
     model.eval()
-    return model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy(), losses[-1]
+    return model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy(),\
+           losses[-1] if epochs > 0 else 0
 
 
 # endregion
@@ -181,7 +181,7 @@ def parse_hyperparams(hyperparams):
 
     clustering_hyperparams = {
         "clustering_alg": "k_means",
-        "n_clusters": 100,
+        "n_clusters": 1,
         "batch_size": 100
     }
     return embedding_hyperparams, clustering_hyperparams
@@ -213,7 +213,7 @@ def main():
 
     embedding_loss, scores = res[:, :, 0], res[:, :, 1]
 
-    show_exp_results(ps, qs, scores)
+    show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
 
 
 if __name__ == "__main__":
