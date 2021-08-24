@@ -71,14 +71,16 @@ def plot_each_cluster(G, labels):
 
 def show_exp_results(xs, ys, scores, xlabel, ylabel, title):
     fig, ax = plt.subplots(1, 1)
+    img = ax.imshow(scores, cmap='cividis', extent=[-1, 1, -1, 1])
 
-    ax.set_xticklabels([0] + list(xs))
+    ax.set_xticks(np.linspace(-1, 1, len(xs), endpoint=False)+1/(len(xs)))
+    ax.set_xticklabels(map(lambda x: f'{x:.3f}', xs))
     ax.set_xlabel(xlabel)
 
-    ax.set_yticklabels([0] + list(ys))
+    ax.set_yticks(np.linspace(-1, 1, len(ys), endpoint=False)+1/(len(ys)))
+    ax.set_yticklabels(map(lambda y: f'{y:.3f}', ys))
     ax.set_ylabel(ylabel)
 
-    img = ax.imshow(scores, cmap='cividis')
     fig.colorbar(img)
     fig.suptitle(title)
     plt.show()
@@ -179,7 +181,8 @@ def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
     test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
 
     if not verbose:
-        print(f'Running', end="")
+        print('n_tests'+'.'*test_matrix.size)
+        print('Running', end="")
     res = np.apply_along_axis(
         lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
         -1, test_matrix)
@@ -214,7 +217,7 @@ def parse_p_q_hyperparams(hyperparams, clustering_alg):
     elif clustering_alg == "k_means":
         clustering_hyperparams = {
             "clustering_alg": "k_means",
-            "n_clusters": 100,
+            "n_clusters": 200,
             "batch_size": 100
         }
 
