@@ -137,10 +137,10 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
     if clustering_alg == "affinity_propagation":
         # preference - controls how many exemplars are used
         # damping factor - damps the responsibility and availability messages (between 0.5 and 1)
-        labels = AffinityPropagation(preference=kwargs["preference"], damping=kwargs["damping"]).fit(embedded).labels_
+        labels = AffinityPropagation(random_state=316144, preference=kwargs["preference"], damping=kwargs["damping"]).fit(embedded).labels_
 
     elif clustering_alg == "k_means":
-        labels = MiniBatchKMeans(n_clusters=kwargs["n_clusters"], batch_size=kwargs["batch_size"]).fit(embedded).labels_
+        labels = MiniBatchKMeans(random_state=316144, n_clusters=kwargs["n_clusters"], batch_size=kwargs["batch_size"]).fit(embedded).labels_
 
     else:
         assert False
@@ -163,9 +163,9 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
 
 # region hyperparams
 
-def parse_hyperparams(hyperparams):
+def parse_p_q_hyperparams(hyperparams, clustering_alg):
     embedding_hyperparams = {
-        "epochs": 0,
+        "epochs": 20,
         "p": hyperparams[0],
         "q": hyperparams[1],
         "embedding_dim": 128,
@@ -173,28 +173,51 @@ def parse_hyperparams(hyperparams):
         "walks_per_node": 10
     }
 
-    clustering_hyperparams = {
-        "clustering_alg": "affinity_propagation",
-        "preference": None,
-        "damping": 0.5
-    }
+    if clustering_alg == "affinity_propagation":
+        clustering_hyperparams = {
+            "clustering_alg": "affinity_propagation",
+            "preference": None,
+            "damping": 0.5
+        }
 
-    clustering_hyperparams = {
-        "clustering_alg": "k_means",
-        "n_clusters": 1,
-        "batch_size": 100
-    }
+    elif clustering_alg == "k_means":
+        clustering_hyperparams = {
+            "clustering_alg": "k_means",
+            "n_clusters": 100,
+            "batch_size": 100
+        }
+
+    else:
+        return None
+
     return embedding_hyperparams, clustering_hyperparams
 
 
-def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams):
+def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, verbose=False):
     embedded, embedding_loss = embed(data, **embedding_hyperparams)
     score = cluster_embeddings(G, embedded, gaf_data, **clustering_hyperparams)
-    print(f'embedding_hyperparams={embedding_hyperparams} clustering_hyperparams={clustering_hyperparams} embedding_loss={embedding_loss:.4f} score={score:.4f}\n\n')
+    if verbose:
+        print(f'embedding_hyperparams={embedding_hyperparams} clustering_hyperparams={clustering_hyperparams} embedding_loss={embedding_loss:.4f} score={score:.4f}')
 
     return embedding_loss, score
 
 
+def test_p_q(G, data, gaf_data, p_min, p_max, q_min, q_max, clustering_alg, verbose=False):
+    ps = np.linspace(p_min, p_max, 5)
+    qs = np.linspace(q_min, q_max, 5)
+    test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
+
+    res = np.apply_along_axis(
+      lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
+      -1, test_matrix)
+
+    embedding_loss, scores = res[:, :, 0], res[:, :, 1]
+
+    show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
+    show_exp_results(ps, qs, embedding_loss, "p", "q", "embedding_loss by p, q")
+
+    print(f'min loss={test_matrix[np.unravel_index(np.argmax(scores),scores.shape)]}')
+    print(f'max score={test_matrix[np.unravel_index(np.argmax(embedding_loss),scores.embedding_loss)]}')
 # endregion
 
 
@@ -203,17 +226,7 @@ def main():
     # nx.draw(G)
     # plt.show()
 
-    ps = np.linspace(0.1, 4, 5)
-    qs = np.linspace(0.1, 4, 5)
-    test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
-
-    res = np.apply_along_axis(
-        lambda hyperparams: run_test(G, data, gaf_data, *parse_hyperparams(hyperparams)),
-        -1, test_matrix)
-
-    embedding_loss, scores = res[:, :, 0], res[:, :, 1]
-
-    show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
+    test_p_q(G, data, gaf_data, 0.1, 4, 0.1, 4, "k_means")
 
 
 if __name__ == "__main__":
