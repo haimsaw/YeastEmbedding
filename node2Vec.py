@@ -76,7 +76,7 @@ def plot_each_cluster(G, labels):
 
 def show_exp_results(xs, ys, scores, xlabel, ylabel, title):
     fig, ax = plt.subplots(1, 1)
-    img = ax.imshow(scores, cmap='cividis', extent=[-1, 1, -1, 1])
+    img = ax.imshow(scores, cmap='cividis', extent=[-1, 1, -1, 1], origin='lower')
 
     ax.set_xticks(np.linspace(-1, 1, len(xs), endpoint=False)+1/(len(xs)))
     ax.set_xticklabels(map(lambda x: f'{x:.3f}', xs))
@@ -113,9 +113,6 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbos
     model = Node2Vec(data.edge_index, embedding_dim=embedding_dim, walk_length=walk_length,
                      context_size=10, walks_per_node=walks_per_node,
                      num_negative_samples=1, p=p, q=q, sparse=True).to(device)
-    # todo we want more bfs - homophily
-    # p = return parameter,  likelihood of immediately revisiting a node
-    # q = in-out parameter, if q > 1, the random walk is biased towards nodes close to node t. (more bfs)
 
     loader = model.loader(batch_size=128, shuffle=True, num_workers=os.cpu_count())
     optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=0.01)
@@ -164,7 +161,7 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
 
     # plot_each_cluster(G, affinity_propagation_labels)
     # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
-    return get_partition_score(G, clusters, gaf_data)
+    return partition_score(G, clusters, gaf_data)
 
 
 # endregion
@@ -196,14 +193,12 @@ def parse_hyperparams(clustering_alg, epochs=20, embedding_dim=128, walk_length=
 
     if clustering_alg == "affinity_propagation":
         clustering_hyperparams = {
-            "clustering_alg": "affinity_propagation",
             "preference": None,
             "damping": 0.5
         }
 
     elif clustering_alg == "k_means":
         clustering_hyperparams = {
-            "clustering_alg": "k_means",
             "n_clusters": 200,
             "batch_size": 100
         }
@@ -211,29 +206,31 @@ def parse_hyperparams(clustering_alg, epochs=20, embedding_dim=128, walk_length=
     else:
         return None
 
+    clustering_hyperparams["clustering_alg"] = clustering_alg
     return embedding_hyperparams, clustering_hyperparams
 
 
-def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
-    test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
+def test_p_q(G, data, gaf_data, clustering_alg, const_hp, verbose=False, **hyperparams_to_test):
+    # TODO make tested hyperparams as *args and pass a list with names, asstert test_matrix.size<=50
+    tested_hp_names, hp_values_to_test = hyperparams_to_test.keys(), hyperparams_to_test.values()
+    test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
 
     if not verbose:
         print('n_tests'+'.' * int(np.size(test_matrix)/np.size(test_matrix, axis=-1)))
         print('Running', end="")
 
-    parse_p_q_hyperparams = partial(parse_hyperparams, clustering_alg="k_means", epochs=20, embedding_dim=128, walk_length=20, walks_per_node=10)
+    parse_tested_hyperparams = partial(parse_hyperparams, clustering_alg, **const_hp)
     res = np.apply_along_axis(
-        lambda tested_hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(p=tested_hyperparams[0], q=tested_hyperparams[1]), verbose),
+        lambda tested_hyperparams: run_test(G, data, gaf_data, *parse_tested_hyperparams(*zip(tested_hp_names, tested_hyperparams)), verbose),
         -1, test_matrix)
 
     embedding_loss, scores = res[:, :, 0], res[:, :, 1]
 
-    show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
-    show_exp_results(ps, qs, embedding_loss, "p", "q", "embedding_loss by p, q")
+    show_exp_results(*hp_values_to_test, scores, "p-return parameter", "q-in-out parameter", "scores by p, q")
 
     idx = np.unravel_index(np.argmax(scores), scores.shape)
     print(f'winning_params={test_matrix[idx]}, max score={scores[idx]}')
-    print(f'hyperparams={parse_p_q_hyperparams(test_matrix[idx], clustering_alg)}')
+    print(f'hyperparams={parse_tested_hyperparams(*zip(tested_hp_names, test_matrix[idx]))}')
 
 # endregion
 
@@ -243,9 +240,16 @@ def main():
     # nx.draw(G)
     # plt.show()
 
-    ps = np.linspace(0.01, 4, 3)
-    qs = np.linspace(0.01, 4, 3)
-    test_p_q(G, data, gaf_data, "k_means", ps, qs)
+    ps = np.linspace(0.01, 4, 4)
+    qs = np.linspace(0.01, 4, 4)
+    other_hyperparams = {
+         "epochs": 0,
+         "embedding_dim": 128,
+         "walk_length": 20,
+         "walks_per_node": 10
+    }
+
+    test_p_q(G, data, gaf_data, "k_means", other_hyperparams, p=ps, q=qs)
 
 
 if __name__ == "__main__":

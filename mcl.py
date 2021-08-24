@@ -30,6 +30,7 @@ def main():
     print('Computing functional enrichment of clusters')
     clustersAnnotation, clustersPVal = clusterUtils.computeClustersFuncEnrichment(G3Core, clusters, gafData, numOfAnnotationsInG)
 
+    print(f'score={clusterUtils.partition_score(G, clusters, gafData)}')
     #Create txt files
     print('Writing to files')
     clusterUtils.createTxtFiles(G3Core, clusters, clustersPVal, clustersAnnotation, 'clustered_proteins.txt', 'clusters_P.txt')

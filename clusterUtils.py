@@ -150,7 +150,7 @@ def getNumOfAnnotationsInG(G, gafData):
     return numOfAnnotationsInG
 
 
-def get_partition_score(G, clusters, gaf_data):
+def partition_score(G, clusters, gaf_data):
     num_of_annotations_in_g = getNumOfAnnotationsInG(G, gaf_data)
     clusters_annotation, clusters_P_Val = computeClustersFuncEnrichment(G, clusters, gaf_data, num_of_annotations_in_g)
     return sum(starmap(lambda cluster, pval: len(cluster) * max(pval, 0), zip(clusters, clusters_P_Val))) / len(G.nodes)
