@@ -4,12 +4,17 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from torch_geometric.nn import Node2Vec
 from torch_geometric.utils import from_networkx
+import os
 
 from clusterUtils import *
 from graphUtils import *
 import networkx as nx
 
 from sklearn.cluster import AffinityPropagation, MiniBatchKMeans
+
+from functools import partial
+
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -104,7 +109,7 @@ def train(model, optimizer, loader):
     return total_loss / len(loader)
 
 
-def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
+def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbose=False):
     model = Node2Vec(data.edge_index, embedding_dim=embedding_dim, walk_length=walk_length,
                      context_size=10, walks_per_node=walks_per_node,
                      num_negative_samples=1, p=p, q=q, sparse=True).to(device)
@@ -112,22 +117,24 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node):
     # p = return parameter,  likelihood of immediately revisiting a node
     # q = in-out parameter, if q > 1, the random walk is biased towards nodes close to node t. (more bfs)
 
-    loader = model.loader(batch_size=128, shuffle=True, num_workers=4)
+    loader = model.loader(batch_size=128, shuffle=True, num_workers=os.cpu_count())
     optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=0.01)
 
     losses = []
     for epoch in range(epochs):
         loss = train(model, optimizer, loader)
         losses.append(loss)
-        if epoch % 10 == 0:
+        if verbose:
             print(f'Epoch: {epoch:02d}, Loss: {loss:.4f}')
 
-    plt.bar(range(len(losses)), losses)
-    plt.show()
+    if verbose:
+        plt.bar(range(len(losses)), losses)
+        plt.show()
 
     model.eval()
-    return model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy(),\
-           losses[-1] if epochs > 0 else 0
+    embeddings = model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy()
+    loss = losses[-1] if epochs > 0 else 0
+    return embeddings, loss
 
 
 # endregion
@@ -177,34 +184,14 @@ def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, v
     return embedding_loss, score
 
 
-def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
-    test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
-
-    if not verbose:
-        print('n_tests'+'.' * int(np.size(test_matrix)/np.size(test_matrix, axis=-1)))
-        print('Running', end="")
-    res = np.apply_along_axis(
-        lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
-        -1, test_matrix)
-
-    embedding_loss, scores = res[:, :, 0], res[:, :, 1]
-
-    show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
-    show_exp_results(ps, qs, embedding_loss, "p", "q", "embedding_loss by p, q")
-
-    idx = np.unravel_index(np.argmax(scores), scores.shape)
-    print(f'winning_params={test_matrix[idx]}, max score={scores[idx]}')
-    print(f'hyperparams={parse_p_q_hyperparams(test_matrix[idx], clustering_alg)}')
-
-
-def parse_p_q_hyperparams(hyperparams, clustering_alg):
+def parse_hyperparams(clustering_alg, epochs=20, embedding_dim=128, walk_length=20, walks_per_node=10, p=1, q=1):
     embedding_hyperparams = {
-        "epochs": 30,
-        "p": hyperparams[0],
-        "q": hyperparams[1],
-        "embedding_dim": 128,
-        "walk_length": 20,
-        "walks_per_node": 10
+        "epochs": epochs,
+        "p": p,
+        "q": q,
+        "embedding_dim": embedding_dim,
+        "walk_length": walk_length,
+        "walks_per_node": walks_per_node
     }
 
     if clustering_alg == "affinity_propagation":
@@ -225,6 +212,28 @@ def parse_p_q_hyperparams(hyperparams, clustering_alg):
         return None
 
     return embedding_hyperparams, clustering_hyperparams
+
+
+def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
+    test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
+
+    if not verbose:
+        print('n_tests'+'.' * int(np.size(test_matrix)/np.size(test_matrix, axis=-1)))
+        print('Running', end="")
+
+    parse_p_q_hyperparams = partial(parse_hyperparams, clustering_alg="k_means", epochs=20, embedding_dim=128, walk_length=20, walks_per_node=10)
+    res = np.apply_along_axis(
+        lambda tested_hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(p=tested_hyperparams[0], q=tested_hyperparams[1]), verbose),
+        -1, test_matrix)
+
+    embedding_loss, scores = res[:, :, 0], res[:, :, 1]
+
+    show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
+    show_exp_results(ps, qs, embedding_loss, "p", "q", "embedding_loss by p, q")
+
+    idx = np.unravel_index(np.argmax(scores), scores.shape)
+    print(f'winning_params={test_matrix[idx]}, max score={scores[idx]}')
+    print(f'hyperparams={parse_p_q_hyperparams(test_matrix[idx], clustering_alg)}')
 
 # endregion
 
