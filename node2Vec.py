@@ -204,26 +204,23 @@ def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, v
     return embedding_loss, score
 
 
-def test_p_q(G, data, gaf_data, p_min, p_max, q_min, q_max, clustering_alg, verbose=False):
-    ps = np.linspace(p_min, p_max, 5)
-    qs = np.linspace(q_min, q_max, 5)
+def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
     test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
 
     if not verbose:
-        print('Running', end="")
-
+        print(f'Running', end="")
     res = np.apply_along_axis(
-      lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
-      -1, test_matrix)
+        lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
+        -1, test_matrix)
 
     embedding_loss, scores = res[:, :, 0], res[:, :, 1]
 
     show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
     show_exp_results(ps, qs, embedding_loss, "p", "q", "embedding_loss by p, q")
 
-    winning_params = test_matrix[np.unravel_index(np.argmax(scores),scores.shape)]
-    print(f'winning_params={winning_params}, max score={scores[winning_params]}')
-    print(f'hyperparams={parse_p_q_hyperparams(winning_params, clustering_alg)}')
+    idx = np.unravel_index(np.argmax(scores), scores.shape)
+    print(f'winning_params={test_matrix[idx]}, max score={scores[idx]}')
+    print(f'hyperparams={parse_p_q_hyperparams(test_matrix[idx], clustering_alg)}')
 
 # endregion
 
@@ -233,7 +230,9 @@ def main():
     # nx.draw(G)
     # plt.show()
 
-    test_p_q(G, data, gaf_data, 0.1, 4, 0.1, 4, "k_means")
+    ps = np.linspace(0.01, 4, 3)
+    qs = np.linspace(0.01, 4, 3)
+    test_p_q(G, data, gaf_data, "k_means", ps, qs)
 
 
 if __name__ == "__main__":
