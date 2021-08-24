@@ -163,35 +163,6 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
 
 # region hyperparams
 
-def parse_p_q_hyperparams(hyperparams, clustering_alg):
-    embedding_hyperparams = {
-        "epochs": 20,
-        "p": hyperparams[0],
-        "q": hyperparams[1],
-        "embedding_dim": 128,
-        "walk_length": 20,
-        "walks_per_node": 10
-    }
-
-    if clustering_alg == "affinity_propagation":
-        clustering_hyperparams = {
-            "clustering_alg": "affinity_propagation",
-            "preference": None,
-            "damping": 0.5
-        }
-
-    elif clustering_alg == "k_means":
-        clustering_hyperparams = {
-            "clustering_alg": "k_means",
-            "n_clusters": 100,
-            "batch_size": 100
-        }
-
-    else:
-        return None
-
-    return embedding_hyperparams, clustering_hyperparams
-
 
 def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, verbose=False):
     if not verbose:
@@ -221,6 +192,36 @@ def test_p_q(G, data, gaf_data, clustering_alg, ps, qs, verbose=False):
     idx = np.unravel_index(np.argmax(scores), scores.shape)
     print(f'winning_params={test_matrix[idx]}, max score={scores[idx]}')
     print(f'hyperparams={parse_p_q_hyperparams(test_matrix[idx], clustering_alg)}')
+
+
+def parse_p_q_hyperparams(hyperparams, clustering_alg):
+    embedding_hyperparams = {
+        "epochs": 30,
+        "p": hyperparams[0],
+        "q": hyperparams[1],
+        "embedding_dim": 128,
+        "walk_length": 20,
+        "walks_per_node": 10
+    }
+
+    if clustering_alg == "affinity_propagation":
+        clustering_hyperparams = {
+            "clustering_alg": "affinity_propagation",
+            "preference": None,
+            "damping": 0.5
+        }
+
+    elif clustering_alg == "k_means":
+        clustering_hyperparams = {
+            "clustering_alg": "k_means",
+            "n_clusters": 100,
+            "batch_size": 100
+        }
+
+    else:
+        return None
+
+    return embedding_hyperparams, clustering_hyperparams
 
 # endregion
 
