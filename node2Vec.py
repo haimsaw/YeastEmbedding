@@ -19,7 +19,7 @@ from functools import partial
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
-# region general
+# region utils
 
 def get_data():
     G = nx.read_edgelist('db/huri_symbol.tsv')
