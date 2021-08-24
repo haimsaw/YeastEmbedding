@@ -194,6 +194,8 @@ def parse_p_q_hyperparams(hyperparams, clustering_alg):
 
 
 def run_test(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, verbose=False):
+    if not verbose:
+        print('.', end='')
     embedded, embedding_loss = embed(data, **embedding_hyperparams)
     score = cluster_embeddings(G, embedded, gaf_data, **clustering_hyperparams)
     if verbose:
@@ -207,6 +209,9 @@ def test_p_q(G, data, gaf_data, p_min, p_max, q_min, q_max, clustering_alg, verb
     qs = np.linspace(q_min, q_max, 5)
     test_matrix = np.stack(np.meshgrid(ps, qs), axis=-1)
 
+    if not verbose:
+        print('Running', end="")
+
     res = np.apply_along_axis(
       lambda hyperparams: run_test(G, data, gaf_data, *parse_p_q_hyperparams(hyperparams, clustering_alg), verbose),
       -1, test_matrix)
@@ -216,8 +221,10 @@ def test_p_q(G, data, gaf_data, p_min, p_max, q_min, q_max, clustering_alg, verb
     show_exp_results(ps, qs, scores, "p", "q", "scores by p, q")
     show_exp_results(ps, qs, embedding_loss, "p", "q", "embedding_loss by p, q")
 
-    print(f'min loss={test_matrix[np.unravel_index(np.argmax(scores),scores.shape)]}')
-    print(f'max score={test_matrix[np.unravel_index(np.argmax(embedding_loss),scores.embedding_loss)]}')
+    winning_params = test_matrix[np.unravel_index(np.argmax(scores),scores.shape)]
+    print(f'winning_params={winning_params}, max score={scores[winning_params]}')
+    print(f'hyperparams={parse_p_q_hyperparams(winning_params, clustering_alg)}')
+
 # endregion
 
 
