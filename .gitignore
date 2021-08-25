@@ -4,3 +4,4 @@
 .vscode
 __pycache__
 /~$bedding_summery.docx
+*.tmp

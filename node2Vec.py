@@ -52,7 +52,6 @@ def plot_2d_embeddings(model, data):
     plt.show()
 
 
-@torch.no_grad()
 def plot_2d_embeddings_with_label(embedded, labels):
     z = TSNE(n_components=2).fit_transform(embedded)
     print(z.shape)
@@ -63,7 +62,6 @@ def plot_2d_embeddings_with_label(embedded, labels):
     plt.show()
 
 
-@torch.no_grad()
 def plot_each_cluster(G, labels):
     for i in range(max(labels) + 1):
         nodes = np.array(G.nodes)[labels == i]
@@ -75,12 +73,27 @@ def plot_each_cluster(G, labels):
 
 def show_exp_results(labels, vals, title, scores):
     # todo 1d results
-    if len(labels) == 2:
+    if len(labels) == 1:
+        show_1d_exp_results(labels, vals, title, scores)
+    elif len(labels) == 2:
         show_2d_exp_results(labels, vals, title, scores)
     elif len(labels) == 3:
         show_3d_exp_results(labels, vals, title, scores)
     else:
         raise Exception("unsupported num of labels")
+
+
+def show_1d_exp_results(labels, vals, title, scores):
+    label = labels[0]
+    vals = vals[0]
+    fig, ax = plt.subplots(1, 1)
+
+    ax.bar([f'{val:.4f}' for val in vals], scores)
+
+    ax.set_xlabel(label)
+
+    fig.suptitle(title)
+    plt.show()
 
 
 def show_3d_exp_results(labels, vals, title, scores):
@@ -262,20 +275,20 @@ def main():
     data, G, gaf_data = get_data()
     # nx.draw(G)
     # plt.show()
-    ps = np.linspace(0.01, 4, 2)
-    qs = np.linspace(0.01, 4, 2)
+    #ps = np.linspace(0.01, 4, 2)
+    #qs = np.linspace(0.01, 4, 2)
     embedding_dims = [64, 128]
     const_hp = {
         "clustering_alg": "k_means",
         "epochs": 0,
-        # "p": 0.01,
-        # "q": 1.34,
+        "p": 0.01,
+        "q": 1.34,
         # "embedding_dim": 128,
         "walk_length": 20,
         "walks_per_node": 10
     }
 
-    test_hp(G, data, gaf_data, const_hp, p=ps, q=qs, embedding_dim=embedding_dims)
+    test_hp(G, data, gaf_data, const_hp, embedding_dim=embedding_dims)
 
 
 if __name__ == "__main__":
