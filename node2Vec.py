@@ -12,8 +12,6 @@ import networkx as nx
 
 from sklearn.cluster import AffinityPropagation, MiniBatchKMeans
 
-from functools import partial
-
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
@@ -142,9 +140,12 @@ def train(model, optimizer, loader):
 
 
 def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbose=False):
-    model = Node2Vec(data.edge_index, embedding_dim=int(embedding_dim), walk_length=walk_length,
+    model = Node2Vec(data.edge_index, embedding_dim=embedding_dim, walk_length=walk_length,
                      context_size=10, walks_per_node=walks_per_node,
                      num_negative_samples=1, p=p, q=q, sparse=True).to(device)
+    # we want more bfs - homophily
+    # p = return parameter,  likelihood of immediately revisiting a node
+    # q = in-out parameter, if q > 1, the random walk is biased towards nodes close to node t. (more bfs)
 
     loader = model.loader(batch_size=128, shuffle=True, num_workers=os.cpu_count())
     optimizer = torch.optim.SparseAdam(list(model.parameters()), lr=0.01)
@@ -186,14 +187,14 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
     indices = np.array(range(len(labels)))
     clusters = []
     for i in range(max(labels) + 1):
-        clusters.append(indices[labels == i])
+        clusters.append(list(indices[labels == i]))
 
     n_clusters_ = len(np.unique(labels))
     # print(f'Number of clusters: {n_clusters_}')
 
     # plot_each_cluster(G, affinity_propagation_labels)
     # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
-    return partition_score(G, clusters, gaf_data)
+    return partition_score(G, clusters, gaf_data), clusters # np.array(clusters, dtype=object)
 
 
 # endregion
@@ -206,47 +207,21 @@ def run_cycle(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, 
     if not verbose:
         print('.', end='')
     embedded, embedding_loss = embed(data, **embedding_hyperparams)
-    score = cluster_embeddings(G, embedded, gaf_data, **clustering_hyperparams)
+    score, clusters = cluster_embeddings(G, embedded, gaf_data, **clustering_hyperparams)
     if verbose:
         print(f'embedding_hyperparams={embedding_hyperparams} clustering_hyperparams={clustering_hyperparams} embedding_loss={embedding_loss:.4f} score={score:.4f}')
 
-    return embedding_loss, score
+    return np.array([embedding_loss, score, clusters], dtype=object)
 
 
-def test_hp(G, data, gaf_data, const_hp, verbose=False, **hp_to_test):
-    hp_names_to_test, hp_values_to_test = list(hp_to_test.keys()), list(hp_to_test.values())
-    n_tests = np.prod([len(vals) for vals in hp_values_to_test])
-
-    assert n_tests <= 50
-    if not verbose:
-        print('n_tests' + '.' * n_tests)
-        print('Running', end="")
-
-    parse_tested_hp = partial(parse_hyperparams, **const_hp)
-    test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
-
-    res = np.apply_along_axis(
-        lambda tested_hp: run_cycle(G, data, gaf_data, *parse_tested_hp(**dict(zip(hp_names_to_test, tested_hp))), verbose),
-        -1, test_matrix)
-
-    embedding_loss, scores = res[..., 0], res[..., 1]
-
-    show_exp_results(hp_names_to_test, hp_values_to_test, "scores", scores)
-
-    idx = np.unravel_index(np.argmax(scores), scores.shape)
-    winning_hp = dict(zip(hp_names_to_test,test_matrix[idx]))
-    print(f'\nwinning_params={winning_hp}, max score={scores[idx]}')
-    print(f'hyperparams={parse_tested_hp(**winning_hp)}')
-
-
-def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_per_node, p, q):
+def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_per_node, p, q, n_clusters=None, batch_size=None):
     embedding_hyperparams = {
         "epochs": epochs,
         "p": p,
         "q": q,
-        "embedding_dim": embedding_dim,
-        "walk_length": walk_length,
-        "walks_per_node": walks_per_node
+        "embedding_dim": int(embedding_dim),
+        "walk_length": int(walk_length),
+        "walks_per_node": int(walks_per_node)
     }
 
     if clustering_alg == "affinity_propagation":
@@ -257,8 +232,8 @@ def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_
 
     elif clustering_alg == "k_means":
         clustering_hyperparams = {
-            "n_clusters": 200,
-            "batch_size": 100
+            "n_clusters": int(n_clusters),
+            "batch_size": int(batch_size)
         }
 
     else:
@@ -268,6 +243,33 @@ def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_
     return embedding_hyperparams, clustering_hyperparams
 
 
+def test_hp(G, data, gaf_data, const_embedding_hp, const_clustering_hp, verbose=False, **hp_to_test):
+    hp_names_to_test, hp_values_to_test = list(hp_to_test.keys()), list(hp_to_test.values())
+    n_tests = np.prod([len(vals) for vals in hp_values_to_test])
+
+    assert n_tests <= 50
+    if not verbose:
+        print('n_tests' + '.' * n_tests)
+        print('Running', end="")
+
+    test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
+
+    res = np.apply_along_axis(
+        lambda tested_hp: run_cycle(G, data, gaf_data, *parse_hyperparams(**dict(zip(hp_names_to_test, tested_hp)), **const_embedding_hp, **const_clustering_hp), verbose),
+        -1, test_matrix)
+
+    embedding_loss, scores, partitions = res[..., 0].astype(float), res[..., 1].astype(float), res[..., 2].astype(list)
+
+    show_exp_results(hp_names_to_test, hp_values_to_test, "scores", scores)
+
+    idx = np.unravel_index(np.argmax(scores), scores.shape)
+    winning_hp = dict(zip(hp_names_to_test, test_matrix[idx]))
+    print(f'\nmax score={scores[idx]} winning_tested_hp={winning_hp}')
+    # print(f'clusters={partitions[idx]}')
+    print(f'const_embedding_hp={const_embedding_hp}, const_clustering_hp={const_clustering_hp}')
+
+    return partitions[idx]
+
 # endregion
 
 
@@ -275,20 +277,25 @@ def main():
     data, G, gaf_data = get_data()
     # nx.draw(G)
     # plt.show()
-    #ps = np.linspace(0.01, 4, 2)
-    #qs = np.linspace(0.01, 4, 2)
+    ps = np.linspace(0.01, 4, 2)
+    qs = np.linspace(0.01, 4, 2)
     embedding_dims = [64, 128]
-    const_hp = {
-        "clustering_alg": "k_means",
+    const_embedding_hp = {
         "epochs": 0,
-        "p": 0.01,
-        "q": 1.34,
+        #"p": 0.01,
+        #"q": 1.34,
         # "embedding_dim": 128,
         "walk_length": 20,
         "walks_per_node": 10
     }
 
-    test_hp(G, data, gaf_data, const_hp, embedding_dim=embedding_dims)
+    const_clustering_hp = {
+        "clustering_alg": "k_means",
+        "n_clusters": 1,
+        "batch_size": 100
+    }
+
+    clusters = test_hp(G, data, gaf_data, const_embedding_hp, const_clustering_hp, p=ps, q=qs, embedding_dim=embedding_dims)
 
 
 if __name__ == "__main__":
