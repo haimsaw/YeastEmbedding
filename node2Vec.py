@@ -10,6 +10,7 @@ from clusterUtils import *
 from graphUtils import *
 import networkx as nx
 
+from functools import lru_cache
 from sklearn.cluster import AffinityPropagation, MiniBatchKMeans
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -75,10 +76,8 @@ def show_exp_results(labels, vals, title, scores):
         show_1d_exp_results(labels, vals, title, scores)
     elif len(labels) == 2:
         show_2d_exp_results(labels, vals, title, scores)
-    elif len(labels) == 3:
-        show_3d_exp_results(labels, vals, title, scores)
     else:
-        raise Exception("unsupported num of labels")
+        show_nd_exp_results(labels, vals, title, scores)
 
 
 def show_1d_exp_results(labels, vals, title, scores):
@@ -94,11 +93,11 @@ def show_1d_exp_results(labels, vals, title, scores):
     plt.show()
 
 
-def show_3d_exp_results(labels, vals, title, scores):
+def show_nd_exp_results(labels, vals, title, scores):
     labels, last_label = labels[:-1], labels[-1]
     vals, last_vals = vals[:-1], vals[-1]
     for i, val in enumerate(last_vals):
-        show_2d_exp_results(labels, vals, f'{title} {last_label}={val}', scores[..., i])
+        show_exp_results(labels, vals, f'{title} {last_label}={val}', scores[..., i])
 
 
 def show_2d_exp_results(labels, vals, title, scores):
@@ -139,7 +138,13 @@ def train(model, optimizer, loader):
     return total_loss / len(loader)
 
 
+@lru_cache
 def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbose=False):
+    random.seed(316144)
+    np.random.seed(316144)
+    torch.manual_seed(316144)
+    torch.cuda.manual_seed(316144)
+
     model = Node2Vec(data.edge_index, embedding_dim=embedding_dim, walk_length=walk_length,
                      context_size=10, walks_per_node=walks_per_node,
                      num_negative_samples=1, p=p, q=q, sparse=True).to(device)
@@ -173,28 +178,29 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbos
 # region clustering
 
 def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
-    if clustering_alg == "affinity_propagation":
-        # preference - controls how many exemplars are used
-        # damping factor - damps the responsibility and availability messages (between 0.5 and 1)
-        labels = AffinityPropagation(random_state=316144, preference=kwargs["preference"], damping=kwargs["damping"]).fit(embedded).labels_
+    with torch.no_grad():
+        if clustering_alg == "affinity_propagation":
+            # preference - controls how many exemplars are used
+            # damping factor - damps the responsibility and availability messages (between 0.5 and 1)
+            labels = AffinityPropagation(random_state=316144, preference=kwargs["preference"], damping=kwargs["damping"]).fit(embedded).labels_
 
-    elif clustering_alg == "k_means":
-        labels = MiniBatchKMeans(random_state=316144, n_clusters=kwargs["n_clusters"], batch_size=kwargs["batch_size"]).fit(embedded).labels_
+        elif clustering_alg == "k_means":
+            labels = MiniBatchKMeans(random_state=316144, n_clusters=kwargs["n_clusters"], batch_size=kwargs["batch_size"]).fit(embedded).labels_
 
-    else:
-        assert False
+        else:
+            assert False
 
-    indices = np.array(range(len(labels)))
-    clusters = []
-    for i in range(max(labels) + 1):
-        clusters.append(list(indices[labels == i]))
+        indices = np.array(range(len(labels)))
+        clusters = []
+        for i in range(max(labels) + 1):
+            clusters.append(list(indices[labels == i]))
 
-    n_clusters_ = len(np.unique(labels))
-    # print(f'Number of clusters: {n_clusters_}')
+        n_clusters_ = len(np.unique(labels))
+        # print(f'Number of clusters: {n_clusters_}')
 
-    # plot_each_cluster(G, affinity_propagation_labels)
-    # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
-    return partition_score(G, clusters, gaf_data), clusters # np.array(clusters, dtype=object)
+        # plot_each_cluster(G, affinity_propagation_labels)
+        # plot_2d_embbedings_with_lable(embbeded, affinity_propagation_labels)
+        return partition_score(G, clusters, gaf_data), clusters
 
 
 # endregion
@@ -207,9 +213,10 @@ def run_cycle(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, 
     if not verbose:
         print('.', end='')
     embedded, embedding_loss = embed(data, **embedding_hyperparams)
+
     score, clusters = cluster_embeddings(G, embedded, gaf_data, **clustering_hyperparams)
     if verbose:
-        print(f'embedding_hyperparams={embedding_hyperparams} clustering_hyperparams={clustering_hyperparams} embedding_loss={embedding_loss:.4f} score={score:.4f}')
+        print(f'embedding_loss={embedding_loss:.4f} score={score:.4f} embedding_hyperparams={embedding_hyperparams} clustering_hyperparams={clustering_hyperparams}')
 
     return np.array([embedding_loss, score, clusters], dtype=object)
 
@@ -277,25 +284,23 @@ def main():
     data, G, gaf_data = get_data()
     # nx.draw(G)
     # plt.show()
-    ps = np.linspace(0.01, 4, 2)
-    qs = np.linspace(0.01, 4, 2)
-    embedding_dims = [64, 128]
-    const_embedding_hp = {
-        "epochs": 0,
-        #"p": 0.01,
-        #"q": 1.34,
-        # "embedding_dim": 128,
+
+
+    ns_clusters = range(190, 300, 10)
+    const_hp = {
+        "epochs": 20,
+        "p": 1.34,
+        "q": 8,
+        "embedding_dim": 1024,
         "walk_length": 20,
         "walks_per_node": 10
     }
-
     const_clustering_hp = {
         "clustering_alg": "k_means",
-        "n_clusters": 1,
+        # "n_clusters": 200,
         "batch_size": 100
     }
-
-    clusters = test_hp(G, data, gaf_data, const_embedding_hp, const_clustering_hp, p=ps, q=qs, embedding_dim=embedding_dims)
+    clusters = test_hp(G, data, gaf_data, const_hp, const_clustering_hp, n_clusters=ns_clusters)
 
 
 if __name__ == "__main__":
