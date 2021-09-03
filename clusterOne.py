@@ -14,14 +14,9 @@ def main():
     print('Retreiving 3-core of G')
     # G3Core = nx.algorithms.core.k_core(G, 3)
     G3Core = G
-    #Creating the adjancey matrix in scipy sparse matrix format, as recommended
-    print('Reformatting G to a sparse format')
-    adjMatrix = nx.to_scipy_sparse_matrix(G3Core)
 
-    #Run MCL algorithm
-    infParam = 2
-    expParam = 2
-    clusters = clusterUtils.mclAlg(adjMatrix.copy(), infParam, expParam)
+    clusters = clusterUtils.extractClusteOneClusters("./output/clusterOneOut.txt", list(G3Core.nodes))
+
 
     #Computing number of each annotation in G
     numOfAnnotationsInG = clusterUtils.getNumOfAnnotationsInG(G3Core, gafData)
@@ -33,8 +28,15 @@ def main():
     print(f'score={clusterUtils.partition_score(G, clusters, gafData)}')
     #Create txt files
     print('Writing to files')
-    clusterUtils.createTxtFiles(G3Core, clusters, gafData, clustersPVal, clustersAnnotation, 'clustered_proteins_mcl.txt', 'clusters_P_mcl.txt', 'summary_mcl.txt')
+    clusterUtils.createTxtFiles(G3Core, clusters,  gafData, clustersPVal, clustersAnnotation, 'clustered_proteins_clusterOne.txt', 'clusters_P_clusterOne.txt', 'summary_clusterOne.txt')
 
+    # for i, cluster in enumerate(clusters):
+    #     if len(cluster > 10):
+    #         nodes = np.array(G.nodes)[list(cluster)]
+    #         H = G.subgraph(nodes)
+    #         print(f'\n\n nodes={len(nodes)} ')
+    #         nx.draw(H, node_size=70)
+    #         plt.show()
 
 if __name__ == "__main__":
     main()

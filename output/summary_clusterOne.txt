@@ -1,0 +1,5 @@
+cluster num of clusters : 366
+cluster partitionScore : 1.080335547273504
+cluster meanSize : 3.8934426229508197
+cluster maxSize : 48
+cluster minSize: 3

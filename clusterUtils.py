@@ -4,6 +4,19 @@ from scipy.stats import hypergeom
 import numpy as np
 from itertools import starmap
 from statistics import mean
+import csv
+import random
+
+def extractClusteOneClusters(filename, nodesList):
+    tsv_file = open(filename)
+    read_tsv = csv.reader(tsv_file, delimiter="\t")
+    clusters = []
+    for row in read_tsv:
+        cluster = []
+        for protein in row:
+            cluster.append(nodesList.index(protein))
+        clusters.append(tuple(cluster))
+    return clusters
 
 def mclAlg(adjMatrix, infParam, expParam):
     print('Running MCL with inflation param: ' + str(round(infParam, 2)) + ', expansion param: ' + str(expParam))
@@ -113,7 +126,7 @@ def computeClustersFuncEnrichment(G, clusters, gafData, numOfAnnotationsInG):
 
     return clustersAnnotation, clustersPVal
 
-def createTxtFiles(G, clusters, clustersPVal, clustersAnnotation, fileName1, fileName2):
+def createTxtFiles(G, clusters, gafData, clustersPVal, clustersAnnotation, fileName1, fileName2, fileName3):
     nodesList = list(G.nodes)
     #First file
     with open('./output/' + fileName1, 'w') as f:
@@ -133,6 +146,14 @@ def createTxtFiles(G, clusters, clustersPVal, clustersAnnotation, fileName1, fil
             if clustersAnnotation[clusterCnt - 1] == -1:
                 continue
             f.write(str(clusterCnt) + "\t" + str(round(clustersPVal[clusterCnt - 1],2)) + "\t" + str(clustersAnnotation[clusterCnt - 1]) + "\n")
+        f.close()
+    partitionScore, meanSize, maxSize, minSize = results(G, clusters, gafData)
+    with open('./output/' + fileName3, 'w') as f:
+        f.write('cluster num of clusters : ' + str(len(clusters)) + "\n")
+        f.write('cluster partitionScore : ' + str(partitionScore) + "\n")
+        f.write('cluster meanSize : ' + str(meanSize) + "\n")
+        f.write('cluster maxSize : ' + str(maxSize) + "\n")
+        f.write('cluster minSize: ' + str(minSize) + "\n")
         f.close()
 
 
@@ -154,3 +175,14 @@ def partition_score(G, clusters, gaf_data):
     num_of_annotations_in_g = getNumOfAnnotationsInG(G, gaf_data)
     clusters_annotation, clusters_P_Val = computeClustersFuncEnrichment(G, clusters, gaf_data, num_of_annotations_in_g)
     return sum(starmap(lambda cluster, pval: len(cluster) * max(pval, 0), zip(clusters, clusters_P_Val))) / len(G.nodes)
+
+def clustersParams(clusters):
+    lenList = []
+    for cluster in clusters:
+        lenList.append(len(cluster))
+    return np.mean(np.array(lenList)), np.max(np.array(lenList)), np.min(np.array(lenList))
+
+def results(G, clusters, gaf_data):
+    partitionScore = partition_score(G, clusters, gaf_data)
+    meanSize, maxSize, minSize = clustersParams(clusters)
+    return partitionScore, meanSize, maxSize, minSize
