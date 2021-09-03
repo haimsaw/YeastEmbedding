@@ -11,7 +11,7 @@ from graphUtils import *
 import networkx as nx
 
 from functools import lru_cache
-from sklearn.cluster import AffinityPropagation, MiniBatchKMeans
+from sklearn.cluster import AffinityPropagation, MiniBatchKMeans, DBSCAN
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -166,10 +166,11 @@ def embed(data, epochs, p, q, embedding_dim, walk_length, walks_per_node, verbos
         plt.bar(range(len(losses)), losses)
         plt.show()
 
-    model.eval()
-    embeddings = model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy()
-    loss = losses[-1] if epochs > 0 else 0
-    return embeddings, loss
+    with torch.no_grad():
+        model.eval()
+        embeddings = model(torch.arange(data.num_nodes, device=device)).cpu().detach().numpy()
+        loss = losses[-1] if epochs > 0 else 0
+        return embeddings, loss
 
 
 # endregion
@@ -186,6 +187,9 @@ def cluster_embeddings(G, embedded, gaf_data, clustering_alg, **kwargs):
 
         elif clustering_alg == "k_means":
             labels = MiniBatchKMeans(random_state=316144, n_clusters=kwargs["n_clusters"], batch_size=kwargs["batch_size"]).fit(embedded).labels_
+
+        elif clustering_alg == "DBSCAN":
+            labels = DBSCAN(min_samples=kwargs["min_samples"], eps=kwargs["eps"]).fit(embedded).labels_
 
         else:
             assert False
@@ -221,7 +225,7 @@ def run_cycle(G, data, gaf_data, embedding_hyperparams, clustering_hyperparams, 
     return np.array([embedding_loss, score, clusters], dtype=object)
 
 
-def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_per_node, p, q, n_clusters=None, batch_size=None):
+def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_per_node, p, q, n_clusters=None, batch_size=None, eps=None, min_samples=None):
     embedding_hyperparams = {
         "epochs": epochs,
         "p": p,
@@ -243,6 +247,12 @@ def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_
             "batch_size": int(batch_size)
         }
 
+    elif clustering_alg == "DBSCAN":
+        clustering_hyperparams = {
+            "eps": eps,
+            "min_samples": int(min_samples)
+        }
+
     else:
         return None
 
@@ -252,30 +262,40 @@ def parse_hyperparams(clustering_alg, epochs, embedding_dim, walk_length, walks_
 
 def test_hp(G, data, gaf_data, const_embedding_hp, const_clustering_hp, verbose=False, **hp_to_test):
     hp_names_to_test, hp_values_to_test = list(hp_to_test.keys()), list(hp_to_test.values())
-    n_tests = np.prod([len(vals) for vals in hp_values_to_test])
+    n_tests = int(np.prod([len(vals) for vals in hp_values_to_test]))
 
     assert n_tests <= 50
     if not verbose:
         print('n_tests' + '.' * n_tests)
         print('Running', end="")
 
-    test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
+    if n_tests == 1:
+        res = run_cycle(G, data, gaf_data, *parse_hyperparams(**const_embedding_hp, **const_clustering_hp), verbose)
+        embedding_loss, score, partition = res[0], res[1], res[2]
+        winning_hp = {}
 
-    res = np.apply_along_axis(
-        lambda tested_hp: run_cycle(G, data, gaf_data, *parse_hyperparams(**dict(zip(hp_names_to_test, tested_hp)), **const_embedding_hp, **const_clustering_hp), verbose),
-        -1, test_matrix)
+    else:
+        test_matrix = np.stack(np.meshgrid(*hp_values_to_test), axis=-1)
+        res = np.apply_along_axis(
+            lambda tested_hp: run_cycle(G, data, gaf_data, *parse_hyperparams(**dict(zip(hp_names_to_test, tested_hp)), **const_embedding_hp, **const_clustering_hp), verbose),
+            -1, test_matrix)
 
-    embedding_loss, scores, partitions = res[..., 0].astype(float), res[..., 1].astype(float), res[..., 2].astype(list)
+        embedding_loss, scores, partitions = res[..., 0].astype(float), res[..., 1].astype(float), res[..., 2].astype(list)
 
-    show_exp_results(hp_names_to_test, hp_values_to_test, "scores", scores)
+        show_exp_results(hp_names_to_test, hp_values_to_test, "scores", scores)
 
-    idx = np.unravel_index(np.argmax(scores), scores.shape)
-    winning_hp = dict(zip(hp_names_to_test, test_matrix[idx]))
-    print(f'\nmax score={scores[idx]} winning_tested_hp={winning_hp}')
+        idx = np.unravel_index(np.argmax(scores), scores.shape)
+        winning_hp = dict(zip(hp_names_to_test, test_matrix[idx]))
+        score = scores[idx]
+        partition = partitions[idx]
+
+    print(f'\nmax score={score} winning_tested_hp={winning_hp}')
+
     # print(f'clusters={partitions[idx]}')
     print(f'const_embedding_hp={const_embedding_hp}, const_clustering_hp={const_clustering_hp}')
 
-    return partitions[idx]
+    return partition
+
 
 # endregion
 
@@ -285,22 +305,22 @@ def main():
     # nx.draw(G)
     # plt.show()
 
+    embedding_dims = [256, 1024, 2048]
 
-    ns_clusters = range(190, 300, 10)
     const_hp = {
-        "epochs": 20,
+        "epochs": 0,
         "p": 1.34,
         "q": 8,
-        "embedding_dim": 1024,
+        # "embedding_dim": 1024,
         "walk_length": 20,
         "walks_per_node": 10
     }
     const_clustering_hp = {
-        "clustering_alg": "k_means",
-        # "n_clusters": 200,
-        "batch_size": 100
+        "clustering_alg": "DBSCAN",
+        "min_samples": 3,
+        "eps": 3
     }
-    clusters = test_hp(G, data, gaf_data, const_hp, const_clustering_hp, n_clusters=ns_clusters)
+    clusters = test_hp(G, data, gaf_data, const_hp, const_clustering_hp, embedding_dim=embedding_dims)
 
 
 if __name__ == "__main__":
